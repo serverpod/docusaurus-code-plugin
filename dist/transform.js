@@ -71,7 +71,16 @@ class CodeBlock {
                 const fileInfo = this.originFile ? ` while processing "${this.originFile}"` : '';
                 throw new Error(`blended-include-code-plugin: no lines selected from "${this.codeRef}"${tagInfo}${fileInfo}. Ensure the target file/document tag exists.`);
             }
-            this.node.value = lines.join("\n");
+            const trimmed = [...lines];
+            while (trimmed.length > 0 && trimmed[trimmed.length - 1].trim() === '') {
+                trimmed.pop();
+            }
+            if (trimmed.length === 0) {
+                const tagInfo = this.doctag ? ` (doctag "${this.doctag}")` : '';
+                const fileInfo = this.originFile ? ` while processing "${this.originFile}"` : '';
+                throw new Error(`blended-include-code-plugin: extracted content from "${this.codeRef}"${tagInfo}${fileInfo} is empty after trimming trailing blank lines.`);
+            }
+            this.node.value = trimmed.join("\n");
         });
     }
 }
