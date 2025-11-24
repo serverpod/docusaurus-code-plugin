@@ -13,6 +13,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.transform = exports.extractParam = void 0;
+const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const unist_util_visit_1 = __importDefault(require("unist-util-visit"));
 const fetchCode_1 = require("./fetchCode");
@@ -100,11 +101,20 @@ exports.extractParam = extractParam;
 // end:doctag<extractParam>
 const isRemoteUrl = (value) => /^https?:\/\//i.test(value);
 const resolveCodeReference = (codeRef, originFile) => {
-    if (isRemoteUrl(codeRef) || path_1.default.isAbsolute(codeRef) || originFile === undefined) {
+    if (isRemoteUrl(codeRef)) {
         return codeRef;
     }
-    const baseDir = path_1.default.dirname(originFile);
-    return path_1.default.resolve(baseDir, codeRef);
+    if (path_1.default.isAbsolute(codeRef)) {
+        return codeRef;
+    }
+    if (originFile !== undefined) {
+        const baseDir = path_1.default.dirname(originFile);
+        const resolved = path_1.default.resolve(baseDir, codeRef);
+        if (fs_1.default.existsSync(resolved)) {
+            return resolved;
+        }
+    }
+    return path_1.default.resolve(process.cwd(), codeRef);
 };
 const applyCodeBlock = (options, node, originFile) => {
     const { children } = node;

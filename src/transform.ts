@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import visit from 'unist-util-visit';
 import { fetchCodeFromFile, fetchCodeFromUrl } from './fetchCode';
@@ -102,12 +103,23 @@ export function extractParam(name: string, input: string): OptionString {
 const isRemoteUrl = (value: string) => /^https?:\/\//i.test(value);
 
 const resolveCodeReference = (codeRef: string, originFile: OptionString) => {
-  if (isRemoteUrl(codeRef) || path.isAbsolute(codeRef) || originFile === undefined) {
+  if (isRemoteUrl(codeRef)) {
     return codeRef;
   }
 
-  const baseDir = path.dirname(originFile);
-  return path.resolve(baseDir, codeRef);
+  if (path.isAbsolute(codeRef)) {
+    return codeRef;
+  }
+
+  if (originFile !== undefined) {
+    const baseDir = path.dirname(originFile);
+    const resolved = path.resolve(baseDir, codeRef);
+    if (fs.existsSync(resolved)) {
+      return resolved;
+    }
+  }
+
+  return path.resolve(process.cwd(), codeRef);
 };
 
 const applyCodeBlock = (options: IncludeOptions, node: any, originFile: OptionString) => {
