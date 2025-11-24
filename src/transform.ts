@@ -1,3 +1,4 @@
+import path from 'path';
 import visit from 'unist-util-visit';
 import { fetchCodeFromFile, fetchCodeFromUrl } from './fetchCode';
 
@@ -24,7 +25,8 @@ class CodeBlock {
     readonly lang: string,
     readonly codeRef: string,
     readonly title: OptionString,
-    readonly doctag: OptionString
+    readonly doctag: OptionString,
+    readonly originFile: OptionString
   ) { }
 
   private selectLines = (lines: string[]) => {
@@ -59,8 +61,15 @@ class CodeBlock {
     if (typeof this.title !== "undefined") this.node.meta = 'title="' + this.title + '"';
 
     const code = this.fromUrl ? (await fetchCodeFromUrl(this.codeRef)) : fetchCodeFromFile(this.codeRef);
+    const lines = this.selectLines(code);
 
-    this.node.value = this.selectLines(code).reduce((a, b) => a + "\n" + b)
+    if (lines.length === 0) {
+      const tagInfo = this.doctag ? ` (doctag "${this.doctag}")` : '';
+      const fileInfo = this.originFile ? ` while processing "${this.originFile}"` : '';
+      throw new Error(`blended-include-code-plugin: no lines selected from "${this.codeRef}"${tagInfo}${fileInfo}. Ensure the target file/document tag exists.`);
+    }
+
+    this.node.value = lines.join("\n");
   }
 }
 
@@ -79,7 +88,18 @@ export function extractParam(name: string, input: string): OptionString {
 }
 // end:doctag<extractParam>
 
-const applyCodeBlock = (options: IncludeOptions, node: any) => {
+const isRemoteUrl = (value: string) => /^https?:\/\//i.test(value);
+
+const resolveCodeReference = (codeRef: string, originFile: OptionString) => {
+  if (isRemoteUrl(codeRef) || path.isAbsolute(codeRef) || originFile === undefined) {
+    return codeRef;
+  }
+
+  const baseDir = path.dirname(originFile);
+  return path.resolve(baseDir, codeRef);
+};
+
+const applyCodeBlock = (options: IncludeOptions, node: any, originFile: OptionString) => {
   const { children } = node
 
   let cb = undefined
@@ -95,12 +115,13 @@ const applyCodeBlock = (options: IncludeOptions, node: any) => {
       if (children.length == 1) {
         codeRef = get(extractParam("file", children[0].value));
         pText = children[0].value;
+        fromUrl = codeRef !== undefined && isRemoteUrl(codeRef);
       } else if (children.length >= 2) {
         for (var c of children) {
           if (c.type == 'link' && codeRef === undefined) codeRef = c.url
           if (c.type == 'text') pText = pText + c.value + " "
         }
-        fromUrl = true;
+        fromUrl = codeRef !== undefined && isRemoteUrl(codeRef);
       }
 
       const lang = get(extractParam("lang", pText));
@@ -111,9 +132,10 @@ const applyCodeBlock = (options: IncludeOptions, node: any) => {
         node,
         fromUrl,
         lang,
-        get(codeRef),
+        resolveCodeReference(get(codeRef), originFile),
         title,
-        doctag
+        doctag,
+        originFile
       )
     }
   } catch (e) {
@@ -123,15 +145,28 @@ const applyCodeBlock = (options: IncludeOptions, node: any) => {
   return cb;
 }
 
-export const transform = (options: IncludeOptions) => (tree: any) => new Promise<void>(async (resolve) => {
+const getOriginFile = (file?: { path?: string, history?: string[] }): OptionString => {
+  if (file?.path) {
+    return file.path;
+  }
+
+  if (file?.history && file.history.length > 0) {
+    return file.history[file.history.length - 1];
+  }
+
+  return undefined;
+};
+
+export const transform = (options: IncludeOptions) => (tree: any, file?: { path?: string, history?: string[] }) => new Promise<void>(async (resolve) => {
 
   const nodesToChange: CodeBlock[] = [];
+  const originFile = getOriginFile(file);
 
   // First, collect all the node that need to be changed, so that 
   // we can iterate over them later on and fetch the file contents 
   // asynchronously 
   const visitor = (node: any) => {
-    const cb = applyCodeBlock(options, node);
+    const cb = applyCodeBlock(options, node, originFile);
     if (cb !== undefined) {
       nodesToChange.push(cb)
     }
